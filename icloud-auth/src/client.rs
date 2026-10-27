@@ -28,6 +28,10 @@ const APPLE_ROOT: &[u8] = include_bytes!("./apple_root.der");
 #[path = "response_tests.rs"]
 mod response_tests;
 
+#[cfg(test)]
+#[path = "connection_tests.rs"]
+mod connection_tests;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InitRequestBody {
     #[serde(rename = "A2k")]
@@ -107,6 +111,7 @@ pub struct AppleAccount<T: AnisetteProvider> {
     pub spd: Option<plist::Dictionary>,
     pub username: Option<String>,
     client: Client,
+    gsa_client: Client,
     pub tokens: HashMap<String, FetchedToken>,
     pub hashed_password: Option<Vec<u8>>,
 }
@@ -219,6 +224,24 @@ fn check_response_status(status: reqwest::StatusCode, operation: &'static str) -
     Ok(())
 }
 
+fn gsa_client(cookies: Arc<reqwest::cookie::Jar>) -> Result<Client, reqwest::Error> {
+    // GrandSlam can return HTML errors on reused connections. Keep cookies
+    // across the exchange, but do not reuse its TCP connections (or HTTP/2).
+    // Other account endpoints retain the normal pooled client.
+    ClientBuilder::new()
+        .cookie_provider(cookies)
+        .add_root_certificate(Certificate::from_der(APPLE_ROOT)?)
+        .http1_only()
+        .http1_title_case_headers()
+        .pool_max_idle_per_host(0)
+        .default_headers(HeaderMap::from_iter([
+            (reqwest::header::CONNECTION, HeaderValue::from_static("close")),
+        ]))
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()
+}
+
 fn parse_response_body(body: &[u8], operation: &'static str) -> Result<plist::Dictionary, Error> {
     // Parser errors can embed response contents. Do not propagate those from an
     // authentication endpoint into logs, including unexpected HTML error pages.
@@ -239,8 +262,10 @@ async fn parse_response(res: Result<Response, reqwest::Error>, operation: &'stat
 impl<T: AnisetteProvider> AppleAccount<T> {
 
     pub fn new_with_anisette(client_info: LoginClientInfo, anisette:  ArcAnisetteClient<T>) -> Result<Self, crate::Error> {
+        let cookies = Arc::new(reqwest::cookie::Jar::default());
+        let gsa_client = gsa_client(cookies.clone())?;
         let client = ClientBuilder::new()
-            .cookie_store(true)
+            .cookie_provider(cookies)
             .add_root_certificate(Certificate::from_der(APPLE_ROOT)?)
             // .proxy(Proxy::https("https://192.168.99.71:8080").unwrap())
             // .danger_accept_invalid_certs(true)
@@ -250,6 +275,7 @@ impl<T: AnisetteProvider> AppleAccount<T> {
 
         Ok(AppleAccount {
             client,
+            gsa_client,
             anisette,
             client_info,
             spd: None,
@@ -696,7 +722,7 @@ impl<T: AnisetteProvider> AppleAccount<T> {
         // println!("{:?}", buffer);
 
         let res = self
-            .client
+            .gsa_client
             .post(GSA_ENDPOINT)
             .headers(gsa_headers.clone())
             .body(buffer)
@@ -759,7 +785,7 @@ impl<T: AnisetteProvider> AppleAccount<T> {
         let buffer = String::from_utf8(buffer).unwrap();
 
         let res = self
-            .client
+            .gsa_client
             .post(GSA_ENDPOINT)
             .headers(gsa_headers.clone())
             .body(buffer)
