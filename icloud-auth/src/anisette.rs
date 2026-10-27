@@ -8,10 +8,38 @@ pub struct AnisetteData {
     pub client_info: LoginClientInfo,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct LocalProvider;
+    impl AnisetteProvider for LocalProvider {
+        async fn get_anisette_headers(&mut self) -> Result<HashMap<String, String>, omnisette::AnisetteError> {
+            Ok(HashMap::from_iter([("X-Apple-I-MD".into(), "synthetic-otp".into())]))
+        }
+    }
+
+    #[tokio::test]
+    async fn local_providers_keep_their_original_identity() {
+        let info = LoginClientInfo {
+            mme_client_info_akd: "<local> <macOS;1;1> <akd>".into(),
+            mme_client_info: "<local> <macOS;1;1> <Messages>".into(),
+            ..Default::default()
+        };
+        let mut provider = AnisetteClient::new(LocalProvider);
+        let data = AnisetteData::new(&mut provider, info.clone()).await.unwrap();
+        assert_eq!(data.client_info.mme_client_info_akd, info.mme_client_info_akd);
+        assert_eq!(data.client_info.mme_client_info, info.mme_client_info);
+        assert_eq!(data.get_gsservice_headers()["X-Apple-I-MD"], "synthetic-otp");
+    }
+}
+
 impl AnisetteData {
     /// Fetches the data at an anisette server
-    pub async fn new<T: AnisetteProvider>(provider: &mut AnisetteClient<T>, client_info: LoginClientInfo) -> Result<Self, crate::Error> {
+    pub async fn new<T: AnisetteProvider>(provider: &mut AnisetteClient<T>, mut client_info: LoginClientInfo) -> Result<Self, crate::Error> {
         let base_headers = provider.get_headers().await?.clone();
+        client_info.mme_client_info_akd = provider.provider.authentication_client_info(&client_info.mme_client_info_akd);
+        client_info.mme_client_info = provider.provider.authentication_client_info(&client_info.mme_client_info);
 
         Ok(AnisetteData { base_headers, client_info })
     }

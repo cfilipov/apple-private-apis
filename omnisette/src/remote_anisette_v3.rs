@@ -498,6 +498,18 @@ impl RemoteAnisetteProviderV3 {
 }
 
 impl AnisetteProvider for RemoteAnisetteProviderV3 {
+    fn authentication_client_info(&self, client_info: &str) -> String {
+        // Since October 2026, GrandSlam rejects this provider's CoreADI data
+        // with a Mac/iOS identity (-80045). Use the compatible authentication
+        // profile, keeping the caller's application identifier unchanged.
+        // https://github.com/Dadoum/anisette-v3-server/issues/61
+        match client_info.rsplit_once(" <") {
+            Some((_, app)) if app.ends_with('>') =>
+                format!("<PC> <Windows;6.2(0,0);9200> <{app}"),
+            _ => client_info.to_owned(),
+        }
+    }
+
     async fn get_anisette_headers(&mut self) -> Result<HashMap<String, String>, AnisetteError> {
         if self.client.is_none() {
             self.client = Some(AnisetteClient::new(self.client_url.clone(), self.info.clone()).await?);
@@ -540,6 +552,26 @@ impl AnisetteProvider for RemoteAnisetteProviderV3 {
 #[cfg(test)]
 mod tests {
     use super::ProvisionInput;
+    use super::RemoteAnisetteProviderV3;
+    use crate::{AnisetteProvider, LoginClientInfo};
+    use std::path::PathBuf;
+
+    #[test]
+    fn authentication_identity_changes_only_the_platform() {
+        let provider = RemoteAnisetteProviderV3::new(
+            "https://unused.invalid".into(), LoginClientInfo::default(), PathBuf::new());
+        for app in [
+            "com.apple.AuthKit/1 (com.apple.akd/1.0)",
+            "com.apple.AOSKit/282 (com.apple.accountsd/113)",
+            "com.apple.AuthKit/1 (com.apple.sbd/638.100.48)",
+        ] {
+            for platform in ["<iMac13,1> <macOS;13.6.4;22G513>", "<iPhone10,1> <iPhone OS;16.7;20H19>"] {
+                assert_eq!(provider.authentication_client_info(&format!("{platform} <{app}>")),
+                    format!("<PC> <Windows;6.2(0,0);9200> <{app}>"));
+            }
+        }
+        assert_eq!(provider.authentication_client_info("unrecognized"), "unrecognized");
+    }
 
     #[test]
     fn parses_end_provisioning_error_as_retryable_server_error() {

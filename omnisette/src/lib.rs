@@ -79,6 +79,11 @@ pub const DEFAULT_ANISETTE_URL_V3: &str = "https://ani.sidestore.io";
 
 pub trait AnisetteProvider {
     fn get_anisette_headers(&mut self) -> impl std::future::Future<Output = Result<HashMap<String, String>, AnisetteError>> + Send;
+    /// Authentication endpoints may require a provider-specific client identity.
+    /// This must not change provisioning, IDS validation, or CloudKit headers.
+    fn authentication_client_info(&self, client_info: &str) -> String {
+        client_info.to_owned()
+    }
     fn get_2fa_code(&mut self) -> impl std::future::Future<Output = Result<u32, AnisetteError>> + Send {
         async {
             Err(AnisetteError::MissingLibraries)
