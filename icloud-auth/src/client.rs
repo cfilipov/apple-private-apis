@@ -24,6 +24,10 @@ use uuid::Uuid;
 const GSA_ENDPOINT: &str = "https://gsa.apple.com/grandslam/GsService2";
 const APPLE_ROOT: &[u8] = include_bytes!("./apple_root.der");
 
+#[cfg(test)]
+#[path = "response_tests.rs"]
+mod response_tests;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InitRequestBody {
     #[serde(rename = "A2k")]
@@ -208,14 +212,28 @@ pub struct AuthenticationExtras {
 //     }
 // }
 
-async fn parse_response(res: Result<Response, reqwest::Error>) -> Result<plist::Dictionary, crate::Error> {
-    let res = res?.text().await?;
-    let res: plist::Dictionary = plist::from_bytes(res.as_bytes())?;
-    let res: plist::Value = res.get("Response").unwrap().to_owned();
-    match res {
-        plist::Value::Dictionary(dict) => Ok(dict),
-        _ => Err(crate::Error::Parse),
+fn check_response_status(status: reqwest::StatusCode, operation: &'static str) -> Result<(), Error> {
+    if !status.is_success() {
+        return Err(Error::AuthenticationHttp { operation, status: status.as_u16() });
     }
+    Ok(())
+}
+
+fn parse_response_body(body: &[u8], operation: &'static str) -> Result<plist::Dictionary, Error> {
+    // Parser errors can embed response contents. Do not propagate those from an
+    // authentication endpoint into logs, including unexpected HTML error pages.
+    let mut response: plist::Dictionary = plist::from_bytes(body)
+        .map_err(|_| Error::AuthenticationResponse { operation })?;
+    match response.remove("Response") {
+        Some(plist::Value::Dictionary(dict)) => Ok(dict),
+        _ => Err(Error::AuthenticationResponse { operation }),
+    }
+}
+
+async fn parse_response(res: Result<Response, reqwest::Error>, operation: &'static str) -> Result<plist::Dictionary, Error> {
+    let response = res?;
+    check_response_status(response.status(), operation)?;
+    parse_response_body(&response.bytes().await?, operation)
 }
 
 impl<T: AnisetteProvider> AppleAccount<T> {
@@ -684,7 +702,7 @@ impl<T: AnisetteProvider> AppleAccount<T> {
             .body(buffer)
             .send().await;
 
-        let res = parse_response(res).await?;
+        let res = parse_response(res, "init").await?;
         let err_check = Self::check_error(&res);
         if err_check.is_err() {
             return Err(err_check.err().unwrap());
@@ -747,7 +765,7 @@ impl<T: AnisetteProvider> AppleAccount<T> {
             .body(buffer)
             .send().await;
 
-        let res = parse_response(res).await?;
+        let res = parse_response(res, "complete").await?;
         let err_check = Self::check_error(&res);
         if err_check.is_err() {
             return Err(err_check.err().unwrap());

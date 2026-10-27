@@ -12,6 +12,10 @@ use thiserror::Error;
 pub enum Error {
     #[error("Failed to parse the response")]
     Parse,
+    #[error("Apple authentication {operation} returned HTTP {status}")]
+    AuthenticationHttp { operation: &'static str, status: u16 },
+    #[error("Apple authentication {operation} returned an invalid plist response")]
+    AuthenticationResponse { operation: &'static str },
     #[error("Failed to authenticate.")]
     AuthSrp,
     #[error("Failed to have a happy birthday!.")]
