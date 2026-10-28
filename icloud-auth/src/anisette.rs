@@ -27,6 +27,7 @@ mod tests {
             ..Default::default()
         };
         let mut provider = AnisetteClient::new(LocalProvider);
+        assert!(!provider.provider.uses_legacy_delegate_login());
         let data = AnisetteData::new(&mut provider, info.clone()).await.unwrap();
         assert_eq!(data.client_info.mme_client_info_akd, info.mme_client_info_akd);
         assert_eq!(data.client_info.mme_client_info, info.mme_client_info);

@@ -84,6 +84,9 @@ pub trait AnisetteProvider {
     fn authentication_client_info(&self, client_info: &str) -> String {
         client_info.to_owned()
     }
+    /// The compatible remote profile uses Apple's legacy delegate protocol,
+    /// not the device-bound signin/v2 exchange.
+    fn uses_legacy_delegate_login(&self) -> bool { false }
     fn get_2fa_code(&mut self) -> impl std::future::Future<Output = Result<u32, AnisetteError>> + Send {
         async {
             Err(AnisetteError::MissingLibraries)

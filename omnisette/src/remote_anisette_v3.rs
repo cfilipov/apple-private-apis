@@ -498,6 +498,8 @@ impl RemoteAnisetteProviderV3 {
 }
 
 impl AnisetteProvider for RemoteAnisetteProviderV3 {
+    fn uses_legacy_delegate_login(&self) -> bool { true }
+
     fn authentication_client_info(&self, client_info: &str) -> String {
         // Since October 2026, GrandSlam rejects this provider's CoreADI data
         // with a Mac/iOS identity (-80045). Use the compatible authentication
@@ -560,6 +562,7 @@ mod tests {
     fn authentication_identity_changes_only_the_platform() {
         let provider = RemoteAnisetteProviderV3::new(
             "https://unused.invalid".into(), LoginClientInfo::default(), PathBuf::new());
+        assert!(provider.uses_legacy_delegate_login());
         for app in [
             "com.apple.AuthKit/1 (com.apple.akd/1.0)",
             "com.apple.AOSKit/282 (com.apple.accountsd/113)",
